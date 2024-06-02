@@ -6,20 +6,24 @@ const port = 3000;
 
 // initialize the express
 const app = express();
-// create a write stream
-const accessLog = fs.createWriteStream(path.join(__dirname,'access.log'),{flag: 'a'})
-// define custom morgan
-morgan.format('custom',(tokens, req, res) => {
-    return [
-      tokens.method(req, res),
-      tokens.url(req, res),
-      tokens.status(req, res),
-      tokens.res(req, res, 'content-length'), '-',
-      tokens['response-time'](req, res), 'ms'
-    ].join(' ')
-})
-// setup the logger
-app.use(morgan('custom', { stream: accessLog}));
+// Create a write stream (in append mode)
+const accessLogStream = fs.createWriteStream(path.join(__dirname, 'access.log'), { flags: 'a' });
+
+// Define custom Morgan format
+morgan.format('custom', (tokens, req, res) => {
+  return [
+    tokens.method(req, res),
+    tokens.status(req, res),
+    tokens.res(req, res, 'content-length'),
+    tokens['response-time'](req, res), 'ms',
+    new Date().toISOString(),
+    `HTTP/${req.httpVersion}`,
+    tokens.url(req, res)
+  ].join(' ');
+});
+
+// Setup the logger
+app.use(morgan('custom', { stream: accessLogStream }));
 // middleware to parse JSOn bodies
 app.use(express.json());
 // created custom middleware
@@ -35,15 +39,38 @@ let trades = (req,res,next) => {
      if (typeof shares !== "number") validateError.push("Share must be number");
      if (typeof price !== "number") validateError.push("Price must be number");
 
+     if(validateError.length > 0){
+        const errorMessage = "bad request. some data is incorrect.";
+        const errorDetails = validateError.join('; ');
+
+        return res.status(400).json({ message: errorMessage, errors: validationErrors });
+     }
      else{
         next()
      }
 }
 // routes
 app.get("/trades",(req,res) => {
-    res.status(200).send("data..")
+    const data = fs.readFileSync("./db.json","utf-8");
+    const parseData = JSON.parse(data);
+    res.status(200).send(parseData)
 })
-app.post("/trades",(req,res) => {
+
+app.get("/trades/:id",(req,res) => {
+    const data = fs.readFileSync("./db.json","utf-8");
+    const parseData = JSON.parse(data);
+
+    const tradeId = req.params.id;
+    let currentTrade = {};
+    parseData.trades.filter(trade => {
+        if(trade.id === Number(tradeId)){
+            currentTrade = trade;
+        }
+    })
+    res.status(200).send(currentTrade)
+})
+
+app.post("/trades",trades,(req,res) => {
     console.log(req.body);
     const data = fs.readFileSync("./db.json","utf-8");
     const parseData = JSON.parse(data);
@@ -74,7 +101,7 @@ app.patch("/trades/:id",(req,res) => {
     // Updating trade price with id.
    parseData.trades.map(trade => {
     if(trade.id === Number(tradeId)){
-        trade.price = requestData?.price;
+        trade.price = requestData.price;
     }
    })
 
